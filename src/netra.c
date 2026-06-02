@@ -1,7 +1,6 @@
-#include <stdio.h>
+#include "nta_cli.h"
 
-int main(void)
+int main(int argc, char **argv)
 {
-    puts("Hello, world!");
-    return 0;
+    return nta_cli_run(argc, argv);
 }

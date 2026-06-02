@@ -1,10 +1,12 @@
 CC ?= cc
 
-PROJECT := nta_netra
+PROJECT := netra
+BUILD_MODE ?= release
 
 SRC_DIR := src
 INC_DIR := include
-BUILD_DIR := build
+BUILD_ROOT := build
+BUILD_DIR := $(BUILD_ROOT)/$(BUILD_MODE)
 BIN_DIR := bin
 
 SRCS := $(wildcard $(SRC_DIR)/*.c)
@@ -17,14 +19,18 @@ CFLAGS ?= -std=c11 -O2
 LDFLAGS ?=
 LDLIBS ?=
 
+ifeq ($(BUILD_MODE),debug)
+CFLAGS := -std=c11 -O0 -g3
+endif
+
 TARGET := $(BIN_DIR)/$(PROJECT)
 
 .PHONY: all debug clean run dirs
 
 all: $(TARGET)
 
-debug: CFLAGS := -std=c11 -O0 -g3
-debug: $(TARGET)
+debug:
+	$(MAKE) BUILD_MODE=debug $(TARGET)
 
 run: $(TARGET)
 	./$(TARGET)
@@ -39,6 +45,6 @@ $(BUILD_DIR) $(BIN_DIR):
 	mkdir -p $@
 
 clean:
-	$(RM) -r $(BUILD_DIR) $(BIN_DIR)
+	$(RM) -r $(BUILD_ROOT) $(BIN_DIR)
 
 -include $(DEPS)
