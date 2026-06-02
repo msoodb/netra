@@ -15,10 +15,6 @@ _netra_complete_pids()
 {
     local pids=""
 
-    if compopt +o default 2>/dev/null; then
-        :
-    fi
-
     pids="$(compgen -W "$(cd /proc 2>/dev/null && printf '%s\n' [0-9]* 2>/dev/null)" -- "$cur")"
     COMPREPLY=($pids)
 }
@@ -33,70 +29,59 @@ _netra_complete_hosts()
     COMPREPLY=()
 }
 
+_netra_words()
+{
+    local netra_bin="${NETRA_BIN:-netra}"
+
+    if [[ -x ./bin/netra ]]; then
+        netra_bin="./bin/netra"
+    fi
+
+    "$netra_bin" __complete "$@" 2>/dev/null
+}
+
 _netra()
 {
-    local cur prev command commands options
+    local cur prev command kind words
 
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD - 1]}"
 
-    commands="overview connections interfaces routes dns ping"
+    if [[ $COMP_CWORD -eq 1 ]]; then
+        words="$(_netra_words commands)"
+        COMPREPLY=($(compgen -W "$words" -- "$cur"))
+        return
+    fi
 
-    case "$prev" in
-        -p|--pid)
+    command="${COMP_WORDS[1]}"
+    kind="$(_netra_words value-kind "$command" "$prev")"
+
+    case "$kind" in
+        pid)
             _netra_complete_pids
             return
             ;;
-        -i|--interface|--name)
+        interface)
             _netra_complete_interfaces
             return
             ;;
-        -t|--target)
+        host)
             _netra_complete_hosts
             return
             ;;
-        -n|--count)
+        count)
             COMPREPLY=($(compgen -W "1 2 3 4 5 10" -- "$cur"))
             return
             ;;
-        -T|--table)
+        table)
             COMPREPLY=($(compgen -W "main local default all" -- "$cur"))
             return
             ;;
     esac
 
-    if [[ $COMP_CWORD -eq 1 ]]; then
-        COMPREPLY=($(compgen -W "$commands -h --help" -- "$cur"))
-        return
-    fi
-
-    command="${COMP_WORDS[1]}"
-    case "$command" in
-        overview)
-            options="--json --csv --text -h --help"
-            ;;
-        connections)
-            options="-p --pid -i --interface -l --listening -v --verbose --json --csv --text -h --help"
-            ;;
-        interfaces)
-            options="-i --name -u --up -v --verbose --json --csv --text -h --help"
-            ;;
-        routes)
-            options="-T --table -i --interface -v --verbose --json --csv --text -h --help"
-            ;;
-        dns)
-            options="-v --verbose --json --csv --text -h --help"
-            ;;
-        ping)
-            options="-t --target -n --count -v --verbose --json --csv --text -h --help"
-            ;;
-        *)
-            options="$commands -h --help"
-            ;;
-    esac
-
-    COMPREPLY=($(compgen -W "$options" -- "$cur"))
+    words="$(_netra_words options "$command")"
+    COMPREPLY=($(compgen -W "$words" -- "$cur"))
 }
 
 complete -F _netra netra

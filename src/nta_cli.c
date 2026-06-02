@@ -7,12 +7,30 @@
 #include <string.h>
 
 #define NTA_PARSE_HELP 2
+#define NTA_MAX_OPTIONS 16
 
 typedef enum {
     NTA_OUTPUT_TEXT = 0,
     NTA_OUTPUT_JSON,
     NTA_OUTPUT_CSV,
 } nta_output_format;
+
+typedef struct {
+    const char *name;
+    int short_name;
+    bool has_value;
+    const char *value_name;
+    const char *value_kind;
+    const char *summary;
+} nta_option_spec;
+
+typedef struct {
+    const char *name;
+    const char *summary;
+    const char *usage;
+    const nta_option_spec *options;
+    size_t option_count;
+} nta_command_spec;
 
 typedef struct {
     nta_output_format output;
@@ -23,96 +41,72 @@ typedef struct {
     const char *pid;
     const char *interface;
     bool listening;
-    bool verbose;
 } nta_connections_options;
 
 typedef struct {
     nta_output_format output;
     const char *name;
     bool up_only;
-    bool verbose;
 } nta_interfaces_options;
 
 typedef struct {
     nta_output_format output;
     const char *table;
     const char *interface;
-    bool verbose;
 } nta_routes_options;
 
 typedef struct {
     nta_output_format output;
-    bool verbose;
 } nta_dns_options;
 
 typedef struct {
     nta_output_format output;
     const char *target;
     int count;
-    bool verbose;
 } nta_ping_options;
 
-static const struct option NTA_OVERVIEW_OPTIONS[] = {
-    {"json", no_argument, NULL, 'j'},
-    {"csv", no_argument, NULL, 'c'},
-    {"text", no_argument, NULL, 'x'},
-    {"help", no_argument, NULL, 'h'},
-    {NULL, 0, NULL, 0},
+static const nta_option_spec NTA_OUTPUT_OPTIONS[] = {
+    {"json", 'j', false, NULL, NULL, "Print JSON output"},
+    {"csv", 'c', false, NULL, NULL, "Print CSV output"},
+    {"text", 'x', false, NULL, NULL, "Print human-readable output"},
 };
 
-static const struct option NTA_CONNECTIONS_OPTIONS[] = {
-    {"pid", required_argument, NULL, 'p'},
-    {"interface", required_argument, NULL, 'i'},
-    {"listening", no_argument, NULL, 'l'},
-    {"json", no_argument, NULL, 'j'},
-    {"csv", no_argument, NULL, 'c'},
-    {"text", no_argument, NULL, 'x'},
-    {"verbose", no_argument, NULL, 'v'},
-    {"help", no_argument, NULL, 'h'},
-    {NULL, 0, NULL, 0},
+static const nta_option_spec NTA_CONNECTIONS_OPTIONS[] = {
+    {"pid", 'p', true, "pid", "pid", "Filter by process ID"},
+    {"interface", 'i', true, "name", "interface", "Filter by interface name"},
+    {"listening", 'l', false, NULL, NULL, "Show listening sockets only"},
 };
 
-static const struct option NTA_INTERFACES_OPTIONS[] = {
-    {"name", required_argument, NULL, 'i'},
-    {"up", no_argument, NULL, 'u'},
-    {"json", no_argument, NULL, 'j'},
-    {"csv", no_argument, NULL, 'c'},
-    {"text", no_argument, NULL, 'x'},
-    {"verbose", no_argument, NULL, 'v'},
-    {"help", no_argument, NULL, 'h'},
-    {NULL, 0, NULL, 0},
+static const nta_option_spec NTA_INTERFACES_OPTIONS[] = {
+    {"name", 'i', true, "name", "interface", "Show one interface"},
+    {"up", 'u', false, NULL, NULL, "Show interfaces that are up only"},
 };
 
-static const struct option NTA_ROUTES_OPTIONS[] = {
-    {"table", required_argument, NULL, 'T'},
-    {"interface", required_argument, NULL, 'i'},
-    {"json", no_argument, NULL, 'j'},
-    {"csv", no_argument, NULL, 'c'},
-    {"text", no_argument, NULL, 'x'},
-    {"verbose", no_argument, NULL, 'v'},
-    {"help", no_argument, NULL, 'h'},
-    {NULL, 0, NULL, 0},
+static const nta_option_spec NTA_ROUTES_OPTIONS[] = {
+    {"table", 'T', true, "table", "table", "Route table name or ID"},
+    {"interface", 'i', true, "name", "interface", "Filter by interface name"},
 };
 
-static const struct option NTA_DNS_OPTIONS[] = {
-    {"json", no_argument, NULL, 'j'},
-    {"csv", no_argument, NULL, 'c'},
-    {"text", no_argument, NULL, 'x'},
-    {"verbose", no_argument, NULL, 'v'},
-    {"help", no_argument, NULL, 'h'},
-    {NULL, 0, NULL, 0},
+static const nta_option_spec NTA_PING_OPTIONS[] = {
+    {"target", 't', true, "host", "host", "Target host or IP address"},
+    {"count", 'n', true, "count", "count", "Number of probes"},
 };
 
-static const struct option NTA_PING_OPTIONS[] = {
-    {"target", required_argument, NULL, 't'},
-    {"count", required_argument, NULL, 'n'},
-    {"json", no_argument, NULL, 'j'},
-    {"csv", no_argument, NULL, 'c'},
-    {"text", no_argument, NULL, 'x'},
-    {"verbose", no_argument, NULL, 'v'},
-    {"help", no_argument, NULL, 'h'},
-    {NULL, 0, NULL, 0},
+static const nta_command_spec NTA_COMMANDS[] = {
+    {"overview", "Show a high-level network summary", "overview [--json|--csv|--text]", NULL, 0},
+    {"connections", "List active network connections", "connections [options] [--json|--csv|--text]",
+     NTA_CONNECTIONS_OPTIONS, sizeof(NTA_CONNECTIONS_OPTIONS) / sizeof(NTA_CONNECTIONS_OPTIONS[0])},
+    {"interfaces", "List network interfaces", "interfaces [options] [--json|--csv|--text]",
+     NTA_INTERFACES_OPTIONS, sizeof(NTA_INTERFACES_OPTIONS) / sizeof(NTA_INTERFACES_OPTIONS[0])},
+    {"routes", "Show routing information", "routes [options] [--json|--csv|--text]",
+     NTA_ROUTES_OPTIONS, sizeof(NTA_ROUTES_OPTIONS) / sizeof(NTA_ROUTES_OPTIONS[0])},
+    {"dns", "Show DNS resolver information", "dns [--json|--csv|--text]", NULL, 0},
+    {"ping", "Run a basic reachability diagnostic", "ping --target <host> [options] [--json|--csv|--text]",
+     NTA_PING_OPTIONS, sizeof(NTA_PING_OPTIONS) / sizeof(NTA_PING_OPTIONS[0])},
 };
+
+static const size_t NTA_COMMAND_COUNT = sizeof(NTA_COMMANDS) / sizeof(NTA_COMMANDS[0]);
+static const size_t NTA_OUTPUT_OPTION_COUNT = sizeof(NTA_OUTPUT_OPTIONS) / sizeof(NTA_OUTPUT_OPTIONS[0]);
 
 static const char *nta_output_name(nta_output_format output)
 {
@@ -139,66 +133,154 @@ static void nta_set_output(nta_output_format *output, int option)
     }
 }
 
+static const nta_command_spec *nta_find_command(const char *name)
+{
+    for (size_t i = 0; i < NTA_COMMAND_COUNT; ++i) {
+        if (strcmp(name, NTA_COMMANDS[i].name) == 0) {
+            return &NTA_COMMANDS[i];
+        }
+    }
+
+    return NULL;
+}
+
+static const nta_option_spec *nta_find_option(const nta_command_spec *command, const char *option)
+{
+    const char *name = option;
+
+    if (strncmp(name, "--", 2) == 0) {
+        name += 2;
+        for (size_t i = 0; i < command->option_count; ++i) {
+            if (strcmp(name, command->options[i].name) == 0) {
+                return &command->options[i];
+            }
+        }
+        for (size_t i = 0; i < NTA_OUTPUT_OPTION_COUNT; ++i) {
+            if (strcmp(name, NTA_OUTPUT_OPTIONS[i].name) == 0) {
+                return &NTA_OUTPUT_OPTIONS[i];
+            }
+        }
+        return NULL;
+    }
+
+    if (name[0] == '-' && name[1] != '\0' && name[2] == '\0') {
+        const int short_name = name[1];
+        for (size_t i = 0; i < command->option_count; ++i) {
+            if (command->options[i].short_name == short_name) {
+                return &command->options[i];
+            }
+        }
+        for (size_t i = 0; i < NTA_OUTPUT_OPTION_COUNT; ++i) {
+            if (NTA_OUTPUT_OPTIONS[i].short_name == short_name) {
+                return &NTA_OUTPUT_OPTIONS[i];
+            }
+        }
+    }
+
+    return NULL;
+}
+
 static void nta_print_usage(FILE *stream, const char *program)
 {
     fprintf(stream, "Usage: %s <command> [options]\n\n", program);
     fprintf(stream, "Commands:\n");
-    fprintf(stream, "  overview      Show a high-level network summary\n");
-    fprintf(stream, "  connections   List active network connections\n");
-    fprintf(stream, "  interfaces    List network interfaces\n");
-    fprintf(stream, "  routes        Show routing information\n");
-    fprintf(stream, "  dns           Show DNS resolver information\n");
-    fprintf(stream, "  ping          Run a basic reachability diagnostic\n\n");
-    fprintf(stream, "Run '%s <command> --help' for command-specific options.\n", program);
+    for (size_t i = 0; i < NTA_COMMAND_COUNT; ++i) {
+        fprintf(stream, "  %-12s %s\n", NTA_COMMANDS[i].name, NTA_COMMANDS[i].summary);
+    }
+    fprintf(stream, "\nRun '%s <command> --help' for command-specific options.\n", program);
 }
 
-static void nta_print_command_usage(FILE *stream, const char *program, const char *command)
+static void nta_print_option_usage(FILE *stream, const nta_option_spec *option)
 {
-    if (strcmp(command, "overview") == 0) {
-        fprintf(stream, "Usage: %s overview [--json|--csv|--text]\n", program);
-    } else if (strcmp(command, "connections") == 0) {
-        fprintf(stream, "Usage: %s connections [options] [--json|--csv|--text]\n\n", program);
-        fprintf(stream, "Options:\n");
-        fprintf(stream, "  -p, --pid <pid>          Filter by process ID\n");
-        fprintf(stream, "  -i, --interface <name>   Filter by interface name\n");
-        fprintf(stream, "  -l, --listening          Show listening sockets only\n");
-        fprintf(stream, "  -v, --verbose            Print more detail\n");
-    } else if (strcmp(command, "interfaces") == 0) {
-        fprintf(stream, "Usage: %s interfaces [options] [--json|--csv|--text]\n\n", program);
-        fprintf(stream, "Options:\n");
-        fprintf(stream, "  -i, --name <name>        Show one interface\n");
-        fprintf(stream, "  -u, --up                 Show interfaces that are up only\n");
-        fprintf(stream, "  -v, --verbose            Print more detail\n");
-    } else if (strcmp(command, "routes") == 0) {
-        fprintf(stream, "Usage: %s routes [options] [--json|--csv|--text]\n\n", program);
-        fprintf(stream, "Options:\n");
-        fprintf(stream, "  -T, --table <table>      Route table name or ID\n");
-        fprintf(stream, "  -i, --interface <name>   Filter by interface name\n");
-        fprintf(stream, "  -v, --verbose            Print more detail\n");
-    } else if (strcmp(command, "dns") == 0) {
-        fprintf(stream, "Usage: %s dns [--verbose] [--json|--csv|--text]\n", program);
-    } else if (strcmp(command, "ping") == 0) {
-        fprintf(stream, "Usage: %s ping --target <host> [options] [--json|--csv|--text]\n\n", program);
-        fprintf(stream, "Options:\n");
-        fprintf(stream, "  -t, --target <host>      Target host or IP address\n");
-        fprintf(stream, "  -n, --count <count>      Number of probes\n");
-        fprintf(stream, "  -v, --verbose            Print more detail\n");
+    if (option->has_value) {
+        fprintf(stream, "  -%c, --%s <%s>   %s\n",
+                option->short_name,
+                option->name,
+                option->value_name,
+                option->summary);
     } else {
-        nta_print_usage(stream, program);
+        fprintf(stream, "  -%c, --%s       %s\n",
+                option->short_name,
+                option->name,
+                option->summary);
     }
 }
 
-static bool nta_is_command(const char *command)
+static void nta_print_command_usage(FILE *stream, const char *program, const nta_command_spec *command)
 {
-    return strcmp(command, "overview") == 0 ||
-           strcmp(command, "connections") == 0 ||
-           strcmp(command, "interfaces") == 0 ||
-           strcmp(command, "routes") == 0 ||
-           strcmp(command, "dns") == 0 ||
-           strcmp(command, "ping") == 0;
+    fprintf(stream, "Usage: %s %s\n", program, command->usage);
+
+    if (command->option_count > 0) {
+        fprintf(stream, "\nCommand options:\n");
+        for (size_t i = 0; i < command->option_count; ++i) {
+            nta_print_option_usage(stream, &command->options[i]);
+        }
+    }
+
+    fprintf(stream, "\nOutput options:\n");
+    for (size_t i = 0; i < NTA_OUTPUT_OPTION_COUNT; ++i) {
+        nta_print_option_usage(stream, &NTA_OUTPUT_OPTIONS[i]);
+    }
 }
 
-static int nta_reject_extra_args(int argc, char **argv, const char *command)
+static void nta_add_getopt_option(const nta_option_spec *option,
+                                  struct option *long_options,
+                                  size_t *long_count,
+                                  char *short_options,
+                                  size_t short_capacity)
+{
+    const size_t short_len = strlen(short_options);
+
+    long_options[*long_count] = (struct option){
+        .name = option->name,
+        .has_arg = option->has_value ? required_argument : no_argument,
+        .flag = NULL,
+        .val = option->short_name,
+    };
+    ++(*long_count);
+
+    if (short_len + (option->has_value ? 2U : 1U) + 1U >= short_capacity) {
+        return;
+    }
+
+    short_options[short_len] = (char)option->short_name;
+    if (option->has_value) {
+        short_options[short_len + 1U] = ':';
+        short_options[short_len + 2U] = '\0';
+    } else {
+        short_options[short_len + 1U] = '\0';
+    }
+}
+
+static void nta_prepare_getopt_options(const nta_command_spec *command,
+                                       struct option *long_options,
+                                       char *short_options,
+                                       size_t short_capacity)
+{
+    size_t long_count = 0;
+
+    short_options[0] = '\0';
+
+    for (size_t i = 0; i < command->option_count; ++i) {
+        nta_add_getopt_option(&command->options[i], long_options, &long_count, short_options, short_capacity);
+    }
+    for (size_t i = 0; i < NTA_OUTPUT_OPTION_COUNT; ++i) {
+        nta_add_getopt_option(&NTA_OUTPUT_OPTIONS[i], long_options, &long_count, short_options, short_capacity);
+    }
+
+    long_options[long_count] = (struct option){
+        .name = "help",
+        .has_arg = no_argument,
+        .flag = NULL,
+        .val = 'h',
+    };
+    ++long_count;
+    long_options[long_count] = (struct option){0};
+
+    strncat(short_options, "h", short_capacity - strlen(short_options) - 1U);
+}
+
+static int nta_reject_extra_args(int argc, char **argv, const nta_command_spec *command)
 {
     if (optind < argc) {
         fprintf(stderr, "netra: unexpected argument '%s'\n\n", argv[optind]);
@@ -285,21 +367,18 @@ static int nta_print_connections(const nta_connections_options *opts)
         nta_print_json_string(opts->pid);
         printf(",\n  \"interface\": ");
         nta_print_json_string(opts->interface);
-        printf(",\n  \"listening\": %s,\n", opts->listening ? "true" : "false");
-        printf("  \"verbose\": %s,\n  \"status\": \"stub\"\n}\n", opts->verbose ? "true" : "false");
+        printf(",\n  \"listening\": %s,\n  \"status\": \"stub\"\n}\n", opts->listening ? "true" : "false");
     } else if (opts->output == NTA_OUTPUT_CSV) {
-        printf("command,format,pid,interface,listening,verbose,status\n");
-        printf("connections,csv,%s,%s,%s,%s,stub\n",
+        printf("command,format,pid,interface,listening,status\n");
+        printf("connections,csv,%s,%s,%s,stub\n",
                opts->pid != NULL ? opts->pid : "",
                opts->interface != NULL ? opts->interface : "",
-               opts->listening ? "true" : "false",
-               opts->verbose ? "true" : "false");
+               opts->listening ? "true" : "false");
     } else {
         nta_print_stub_text("connections", opts->output);
         printf("  pid:       %s\n", opts->pid != NULL ? opts->pid : "-");
         printf("  interface: %s\n", opts->interface != NULL ? opts->interface : "-");
         printf("  listening: %s\n", opts->listening ? "yes" : "no");
-        printf("  verbose:   %s\n", opts->verbose ? "yes" : "no");
     }
 
     return EXIT_SUCCESS;
@@ -311,19 +390,16 @@ static int nta_print_interfaces(const nta_interfaces_options *opts)
         printf("{\n  \"command\": \"interfaces\",\n  \"format\": \"json\",\n");
         printf("  \"name\": ");
         nta_print_json_string(opts->name);
-        printf(",\n  \"up_only\": %s,\n", opts->up_only ? "true" : "false");
-        printf("  \"verbose\": %s,\n  \"status\": \"stub\"\n}\n", opts->verbose ? "true" : "false");
+        printf(",\n  \"up_only\": %s,\n  \"status\": \"stub\"\n}\n", opts->up_only ? "true" : "false");
     } else if (opts->output == NTA_OUTPUT_CSV) {
-        printf("command,format,name,up_only,verbose,status\n");
-        printf("interfaces,csv,%s,%s,%s,stub\n",
+        printf("command,format,name,up_only,status\n");
+        printf("interfaces,csv,%s,%s,stub\n",
                opts->name != NULL ? opts->name : "",
-               opts->up_only ? "true" : "false",
-               opts->verbose ? "true" : "false");
+               opts->up_only ? "true" : "false");
     } else {
         nta_print_stub_text("interfaces", opts->output);
         printf("  name:    %s\n", opts->name != NULL ? opts->name : "-");
         printf("  up only: %s\n", opts->up_only ? "yes" : "no");
-        printf("  verbose: %s\n", opts->verbose ? "yes" : "no");
     }
 
     return EXIT_SUCCESS;
@@ -337,18 +413,16 @@ static int nta_print_routes(const nta_routes_options *opts)
         nta_print_json_string(opts->table);
         printf(",\n  \"interface\": ");
         nta_print_json_string(opts->interface);
-        printf(",\n  \"verbose\": %s,\n  \"status\": \"stub\"\n}\n", opts->verbose ? "true" : "false");
+        printf(",\n  \"status\": \"stub\"\n}\n");
     } else if (opts->output == NTA_OUTPUT_CSV) {
-        printf("command,format,table,interface,verbose,status\n");
-        printf("routes,csv,%s,%s,%s,stub\n",
+        printf("command,format,table,interface,status\n");
+        printf("routes,csv,%s,%s,stub\n",
                opts->table != NULL ? opts->table : "",
-               opts->interface != NULL ? opts->interface : "",
-               opts->verbose ? "true" : "false");
+               opts->interface != NULL ? opts->interface : "");
     } else {
         nta_print_stub_text("routes", opts->output);
         printf("  table:     %s\n", opts->table != NULL ? opts->table : "-");
         printf("  interface: %s\n", opts->interface != NULL ? opts->interface : "-");
-        printf("  verbose:   %s\n", opts->verbose ? "yes" : "no");
     }
 
     return EXIT_SUCCESS;
@@ -357,14 +431,12 @@ static int nta_print_routes(const nta_routes_options *opts)
 static int nta_print_dns(const nta_dns_options *opts)
 {
     if (opts->output == NTA_OUTPUT_JSON) {
-        printf("{\n  \"command\": \"dns\",\n  \"format\": \"json\",\n");
-        printf("  \"verbose\": %s,\n  \"status\": \"stub\"\n}\n", opts->verbose ? "true" : "false");
+        printf("{\n  \"command\": \"dns\",\n  \"format\": \"json\",\n  \"status\": \"stub\"\n}\n");
     } else if (opts->output == NTA_OUTPUT_CSV) {
-        printf("command,format,verbose,status\n");
-        printf("dns,csv,%s,stub\n", opts->verbose ? "true" : "false");
+        printf("command,format,status\n");
+        printf("dns,csv,stub\n");
     } else {
         nta_print_stub_text("dns", opts->output);
-        printf("  verbose: %s\n", opts->verbose ? "yes" : "no");
     }
 
     return EXIT_SUCCESS;
@@ -376,31 +448,31 @@ static int nta_print_ping(const nta_ping_options *opts)
         printf("{\n  \"command\": \"ping\",\n  \"format\": \"json\",\n");
         printf("  \"target\": ");
         nta_print_json_string(opts->target);
-        printf(",\n  \"count\": %d,\n", opts->count);
-        printf("  \"verbose\": %s,\n  \"status\": \"stub\"\n}\n", opts->verbose ? "true" : "false");
+        printf(",\n  \"count\": %d,\n  \"status\": \"stub\"\n}\n", opts->count);
     } else if (opts->output == NTA_OUTPUT_CSV) {
-        printf("command,format,target,count,verbose,status\n");
-        printf("ping,csv,%s,%d,%s,stub\n",
+        printf("command,format,target,count,status\n");
+        printf("ping,csv,%s,%d,stub\n",
                opts->target != NULL ? opts->target : "",
-               opts->count,
-               opts->verbose ? "true" : "false");
+               opts->count);
     } else {
         nta_print_stub_text("ping", opts->output);
-        printf("  target:  %s\n", opts->target != NULL ? opts->target : "-");
-        printf("  count:   %d\n", opts->count);
-        printf("  verbose: %s\n", opts->verbose ? "yes" : "no");
+        printf("  target: %s\n", opts->target != NULL ? opts->target : "-");
+        printf("  count:  %d\n", opts->count);
     }
 
     return EXIT_SUCCESS;
 }
 
-static int nta_run_overview(int argc, char **argv)
+static int nta_run_overview(int argc, char **argv, const nta_command_spec *command)
 {
     nta_overview_options opts = {.output = NTA_OUTPUT_TEXT};
+    struct option long_options[NTA_MAX_OPTIONS] = {0};
+    char short_options[NTA_MAX_OPTIONS * 2] = {0};
 
+    nta_prepare_getopt_options(command, long_options, short_options, sizeof(short_options));
     optind = 2;
     while (true) {
-        const int option = getopt_long(argc, argv, "h", NTA_OVERVIEW_OPTIONS, NULL);
+        const int option = getopt_long(argc, argv, short_options, long_options, NULL);
         if (option == -1) {
             break;
         }
@@ -408,34 +480,36 @@ static int nta_run_overview(int argc, char **argv)
         if (option == 'j' || option == 'c' || option == 'x') {
             nta_set_output(&opts.output, option);
         } else if (option == 'h') {
-            nta_print_command_usage(stdout, argv[0], "overview");
+            nta_print_command_usage(stdout, argv[0], command);
             return NTA_PARSE_HELP;
         } else {
-            nta_print_command_usage(stderr, argv[0], "overview");
+            nta_print_command_usage(stderr, argv[0], command);
             return EXIT_FAILURE;
         }
     }
 
-    if (nta_reject_extra_args(argc, argv, "overview") != EXIT_SUCCESS) {
+    if (nta_reject_extra_args(argc, argv, command) != EXIT_SUCCESS) {
         return EXIT_FAILURE;
     }
 
     return nta_print_overview(&opts);
 }
 
-static int nta_run_connections(int argc, char **argv)
+static int nta_run_connections(int argc, char **argv, const nta_command_spec *command)
 {
     nta_connections_options opts = {
         .output = NTA_OUTPUT_TEXT,
         .pid = NULL,
         .interface = NULL,
         .listening = false,
-        .verbose = false,
     };
+    struct option long_options[NTA_MAX_OPTIONS] = {0};
+    char short_options[NTA_MAX_OPTIONS * 2] = {0};
 
+    nta_prepare_getopt_options(command, long_options, short_options, sizeof(short_options));
     optind = 2;
     while (true) {
-        const int option = getopt_long(argc, argv, "p:i:lvh", NTA_CONNECTIONS_OPTIONS, NULL);
+        const int option = getopt_long(argc, argv, short_options, long_options, NULL);
         if (option == -1) {
             break;
         }
@@ -450,42 +524,41 @@ static int nta_run_connections(int argc, char **argv)
         case 'l':
             opts.listening = true;
             break;
-        case 'v':
-            opts.verbose = true;
-            break;
         case 'j':
         case 'c':
         case 'x':
             nta_set_output(&opts.output, option);
             break;
         case 'h':
-            nta_print_command_usage(stdout, argv[0], "connections");
+            nta_print_command_usage(stdout, argv[0], command);
             return NTA_PARSE_HELP;
         default:
-            nta_print_command_usage(stderr, argv[0], "connections");
+            nta_print_command_usage(stderr, argv[0], command);
             return EXIT_FAILURE;
         }
     }
 
-    if (nta_reject_extra_args(argc, argv, "connections") != EXIT_SUCCESS) {
+    if (nta_reject_extra_args(argc, argv, command) != EXIT_SUCCESS) {
         return EXIT_FAILURE;
     }
 
     return nta_print_connections(&opts);
 }
 
-static int nta_run_interfaces(int argc, char **argv)
+static int nta_run_interfaces(int argc, char **argv, const nta_command_spec *command)
 {
     nta_interfaces_options opts = {
         .output = NTA_OUTPUT_TEXT,
         .name = NULL,
         .up_only = false,
-        .verbose = false,
     };
+    struct option long_options[NTA_MAX_OPTIONS] = {0};
+    char short_options[NTA_MAX_OPTIONS * 2] = {0};
 
+    nta_prepare_getopt_options(command, long_options, short_options, sizeof(short_options));
     optind = 2;
     while (true) {
-        const int option = getopt_long(argc, argv, "i:uvh", NTA_INTERFACES_OPTIONS, NULL);
+        const int option = getopt_long(argc, argv, short_options, long_options, NULL);
         if (option == -1) {
             break;
         }
@@ -497,42 +570,41 @@ static int nta_run_interfaces(int argc, char **argv)
         case 'u':
             opts.up_only = true;
             break;
-        case 'v':
-            opts.verbose = true;
-            break;
         case 'j':
         case 'c':
         case 'x':
             nta_set_output(&opts.output, option);
             break;
         case 'h':
-            nta_print_command_usage(stdout, argv[0], "interfaces");
+            nta_print_command_usage(stdout, argv[0], command);
             return NTA_PARSE_HELP;
         default:
-            nta_print_command_usage(stderr, argv[0], "interfaces");
+            nta_print_command_usage(stderr, argv[0], command);
             return EXIT_FAILURE;
         }
     }
 
-    if (nta_reject_extra_args(argc, argv, "interfaces") != EXIT_SUCCESS) {
+    if (nta_reject_extra_args(argc, argv, command) != EXIT_SUCCESS) {
         return EXIT_FAILURE;
     }
 
     return nta_print_interfaces(&opts);
 }
 
-static int nta_run_routes(int argc, char **argv)
+static int nta_run_routes(int argc, char **argv, const nta_command_spec *command)
 {
     nta_routes_options opts = {
         .output = NTA_OUTPUT_TEXT,
         .table = NULL,
         .interface = NULL,
-        .verbose = false,
     };
+    struct option long_options[NTA_MAX_OPTIONS] = {0};
+    char short_options[NTA_MAX_OPTIONS * 2] = {0};
 
+    nta_prepare_getopt_options(command, long_options, short_options, sizeof(short_options));
     optind = 2;
     while (true) {
-        const int option = getopt_long(argc, argv, "T:i:vh", NTA_ROUTES_OPTIONS, NULL);
+        const int option = getopt_long(argc, argv, short_options, long_options, NULL);
         if (option == -1) {
             break;
         }
@@ -544,81 +616,73 @@ static int nta_run_routes(int argc, char **argv)
         case 'i':
             opts.interface = optarg;
             break;
-        case 'v':
-            opts.verbose = true;
-            break;
         case 'j':
         case 'c':
         case 'x':
             nta_set_output(&opts.output, option);
             break;
         case 'h':
-            nta_print_command_usage(stdout, argv[0], "routes");
+            nta_print_command_usage(stdout, argv[0], command);
             return NTA_PARSE_HELP;
         default:
-            nta_print_command_usage(stderr, argv[0], "routes");
+            nta_print_command_usage(stderr, argv[0], command);
             return EXIT_FAILURE;
         }
     }
 
-    if (nta_reject_extra_args(argc, argv, "routes") != EXIT_SUCCESS) {
+    if (nta_reject_extra_args(argc, argv, command) != EXIT_SUCCESS) {
         return EXIT_FAILURE;
     }
 
     return nta_print_routes(&opts);
 }
 
-static int nta_run_dns(int argc, char **argv)
+static int nta_run_dns(int argc, char **argv, const nta_command_spec *command)
 {
-    nta_dns_options opts = {
-        .output = NTA_OUTPUT_TEXT,
-        .verbose = false,
-    };
+    nta_dns_options opts = {.output = NTA_OUTPUT_TEXT};
+    struct option long_options[NTA_MAX_OPTIONS] = {0};
+    char short_options[NTA_MAX_OPTIONS * 2] = {0};
 
+    nta_prepare_getopt_options(command, long_options, short_options, sizeof(short_options));
     optind = 2;
     while (true) {
-        const int option = getopt_long(argc, argv, "vh", NTA_DNS_OPTIONS, NULL);
+        const int option = getopt_long(argc, argv, short_options, long_options, NULL);
         if (option == -1) {
             break;
         }
 
-        switch (option) {
-        case 'v':
-            opts.verbose = true;
-            break;
-        case 'j':
-        case 'c':
-        case 'x':
+        if (option == 'j' || option == 'c' || option == 'x') {
             nta_set_output(&opts.output, option);
-            break;
-        case 'h':
-            nta_print_command_usage(stdout, argv[0], "dns");
+        } else if (option == 'h') {
+            nta_print_command_usage(stdout, argv[0], command);
             return NTA_PARSE_HELP;
-        default:
-            nta_print_command_usage(stderr, argv[0], "dns");
+        } else {
+            nta_print_command_usage(stderr, argv[0], command);
             return EXIT_FAILURE;
         }
     }
 
-    if (nta_reject_extra_args(argc, argv, "dns") != EXIT_SUCCESS) {
+    if (nta_reject_extra_args(argc, argv, command) != EXIT_SUCCESS) {
         return EXIT_FAILURE;
     }
 
     return nta_print_dns(&opts);
 }
 
-static int nta_run_ping(int argc, char **argv)
+static int nta_run_ping(int argc, char **argv, const nta_command_spec *command)
 {
     nta_ping_options opts = {
         .output = NTA_OUTPUT_TEXT,
         .target = NULL,
         .count = 4,
-        .verbose = false,
     };
+    struct option long_options[NTA_MAX_OPTIONS] = {0};
+    char short_options[NTA_MAX_OPTIONS * 2] = {0};
 
+    nta_prepare_getopt_options(command, long_options, short_options, sizeof(short_options));
     optind = 2;
     while (true) {
-        const int option = getopt_long(argc, argv, "t:n:vh", NTA_PING_OPTIONS, NULL);
+        const int option = getopt_long(argc, argv, short_options, long_options, NULL);
         if (option == -1) {
             break;
         }
@@ -632,39 +696,109 @@ static int nta_run_ping(int argc, char **argv)
                 return EXIT_FAILURE;
             }
             break;
-        case 'v':
-            opts.verbose = true;
-            break;
         case 'j':
         case 'c':
         case 'x':
             nta_set_output(&opts.output, option);
             break;
         case 'h':
-            nta_print_command_usage(stdout, argv[0], "ping");
+            nta_print_command_usage(stdout, argv[0], command);
             return NTA_PARSE_HELP;
         default:
-            nta_print_command_usage(stderr, argv[0], "ping");
+            nta_print_command_usage(stderr, argv[0], command);
             return EXIT_FAILURE;
         }
     }
 
-    if (nta_reject_extra_args(argc, argv, "ping") != EXIT_SUCCESS) {
+    if (nta_reject_extra_args(argc, argv, command) != EXIT_SUCCESS) {
         return EXIT_FAILURE;
     }
 
     if (opts.target == NULL) {
         fprintf(stderr, "netra: ping requires --target <host>\n\n");
-        nta_print_command_usage(stderr, argv[0], "ping");
+        nta_print_command_usage(stderr, argv[0], command);
         return EXIT_FAILURE;
     }
 
     return nta_print_ping(&opts);
 }
 
+static int nta_print_completion_commands(void)
+{
+    for (size_t i = 0; i < NTA_COMMAND_COUNT; ++i) {
+        printf("%s\n", NTA_COMMANDS[i].name);
+    }
+    printf("-h\n--help\n");
+    return EXIT_SUCCESS;
+}
+
+static int nta_print_completion_options(const nta_command_spec *command)
+{
+    for (size_t i = 0; i < command->option_count; ++i) {
+        printf("-%c\n--%s\n", command->options[i].short_name, command->options[i].name);
+    }
+    for (size_t i = 0; i < NTA_OUTPUT_OPTION_COUNT; ++i) {
+        printf("-%c\n--%s\n", NTA_OUTPUT_OPTIONS[i].short_name, NTA_OUTPUT_OPTIONS[i].name);
+    }
+    printf("-h\n--help\n");
+    return EXIT_SUCCESS;
+}
+
+static int nta_print_completion_value_kind(const nta_command_spec *command, const char *option)
+{
+    const nta_option_spec *spec = nta_find_option(command, option);
+
+    if (spec == NULL || !spec->has_value || spec->value_kind == NULL) {
+        return EXIT_SUCCESS;
+    }
+
+    printf("%s\n", spec->value_kind);
+    return EXIT_SUCCESS;
+}
+
+static int nta_run_completion(int argc, char **argv)
+{
+    const nta_command_spec *command = NULL;
+
+    if (argc < 3) {
+        return EXIT_FAILURE;
+    }
+
+    if (strcmp(argv[2], "commands") == 0) {
+        return nta_print_completion_commands();
+    }
+
+    if (argc < 4) {
+        return EXIT_FAILURE;
+    }
+
+    command = nta_find_command(argv[3]);
+    if (command == NULL) {
+        return EXIT_SUCCESS;
+    }
+
+    if (strcmp(argv[2], "options") == 0) {
+        return nta_print_completion_options(command);
+    }
+
+    if (strcmp(argv[2], "value-kind") == 0) {
+        if (argc < 5) {
+            return EXIT_FAILURE;
+        }
+        return nta_print_completion_value_kind(command, argv[4]);
+    }
+
+    return EXIT_FAILURE;
+}
+
 int nta_cli_run(int argc, char **argv)
 {
+    const nta_command_spec *command = NULL;
     int result = EXIT_FAILURE;
+
+    if (argc >= 2 && strcmp(argv[1], "__complete") == 0) {
+        return nta_run_completion(argc, argv);
+    }
 
     if (argc < 2 || strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
         nta_print_usage(stdout, argv[0]);
@@ -673,24 +807,25 @@ int nta_cli_run(int argc, char **argv)
 
     opterr = 0;
 
-    if (!nta_is_command(argv[1])) {
+    command = nta_find_command(argv[1]);
+    if (command == NULL) {
         fprintf(stderr, "netra: unknown command '%s'\n\n", argv[1]);
         nta_print_usage(stderr, argv[0]);
         return EXIT_FAILURE;
     }
 
-    if (strcmp(argv[1], "overview") == 0) {
-        result = nta_run_overview(argc, argv);
-    } else if (strcmp(argv[1], "connections") == 0) {
-        result = nta_run_connections(argc, argv);
-    } else if (strcmp(argv[1], "interfaces") == 0) {
-        result = nta_run_interfaces(argc, argv);
-    } else if (strcmp(argv[1], "routes") == 0) {
-        result = nta_run_routes(argc, argv);
-    } else if (strcmp(argv[1], "dns") == 0) {
-        result = nta_run_dns(argc, argv);
-    } else if (strcmp(argv[1], "ping") == 0) {
-        result = nta_run_ping(argc, argv);
+    if (strcmp(command->name, "overview") == 0) {
+        result = nta_run_overview(argc, argv, command);
+    } else if (strcmp(command->name, "connections") == 0) {
+        result = nta_run_connections(argc, argv, command);
+    } else if (strcmp(command->name, "interfaces") == 0) {
+        result = nta_run_interfaces(argc, argv, command);
+    } else if (strcmp(command->name, "routes") == 0) {
+        result = nta_run_routes(argc, argv, command);
+    } else if (strcmp(command->name, "dns") == 0) {
+        result = nta_run_dns(argc, argv, command);
+    } else if (strcmp(command->name, "ping") == 0) {
+        result = nta_run_ping(argc, argv, command);
     }
 
     if (result == NTA_PARSE_HELP) {

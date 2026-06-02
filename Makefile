@@ -27,12 +27,16 @@ endif
 TARGET := $(BIN_DIR)/$(PROJECT)
 BASH_COMPLETION := $(COMPLETION_DIR)/$(PROJECT).bash
 
+ifeq ($(BUILD_MODE),debug)
+TARGET := $(BIN_DIR)/$(PROJECT)-debug
+endif
+
 .PHONY: all debug clean completion install-completion run dirs
 
 all: $(TARGET)
 
 debug:
-	$(MAKE) BUILD_MODE=debug $(TARGET)
+	$(MAKE) BUILD_MODE=debug all
 
 run: $(TARGET)
 	./$(TARGET)
